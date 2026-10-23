@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from .config import get_settings
 from .db import init_db
 from .api.projects import router as projects_router
+from .api.documents import router as documents_router
 
 
 @asynccontextmanager
@@ -17,6 +18,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="技术标生成系统", version="0.1.0", lifespan=lifespan)
 app.include_router(projects_router)
+app.include_router(documents_router)
 
 
 @app.get("/api/health")

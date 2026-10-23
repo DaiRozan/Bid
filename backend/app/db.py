@@ -30,6 +30,8 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     from .models.project import Project  # noqa: F401
+    from .models.document import SourceDocument  # noqa: F401
+    from .models.parse_block import ParseBlock  # noqa: F401
 
     Base.metadata.create_all(_engine())
 
