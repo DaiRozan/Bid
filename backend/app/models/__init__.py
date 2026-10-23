@@ -7,6 +7,8 @@ from .knowledge_item import KnowledgeItem
 from .job import Job
 from .template import Template
 from .chapter import Chapter, ChapterVersion
+from .review_issue import ReviewIssue
+from .export import ExportRecord
 
-__all__ = ["Project", "SourceDocument", "ParseBlock", "Fact", "Requirement", "KnowledgeItem", "Job", "Template", "Chapter", "ChapterVersion"]
+__all__ = ["Project", "SourceDocument", "ParseBlock", "Fact", "Requirement", "KnowledgeItem", "Job", "Template", "Chapter", "ChapterVersion", "ReviewIssue", "ExportRecord"]
 

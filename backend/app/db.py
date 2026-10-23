@@ -38,6 +38,8 @@ def init_db() -> None:
     from .models.job import Job  # noqa: F401
     from .models.template import Template  # noqa: F401
     from .models.chapter import Chapter, ChapterVersion  # noqa: F401
+    from .models.review_issue import ReviewIssue  # noqa: F401
+    from .models.export import ExportRecord  # noqa: F401
 
     Base.metadata.create_all(_engine())
 
