@@ -1,0 +1,51 @@
+import json
+from typing import TypeVar
+
+import httpx
+from pydantic import BaseModel, ValidationError
+
+from ..config import Settings, get_settings
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class ModelConfigurationError(RuntimeError):
+    pass
+
+
+class ModelResponseError(RuntimeError):
+    pass
+
+
+class DeepSeekClient:
+    def __init__(self, settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None):
+        self.settings = settings or get_settings()
+        self.transport = transport
+
+    async def complete_json(self, system: str, payload: dict, response_model: type[T]) -> T:
+        if not self.settings.deepseek_api_key:
+            raise ModelConfigurationError("未配置 DeepSeek API 密钥")
+        request = {
+            "model": self.settings.deepseek_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            "response_format": {"type": "json_object"},
+            "max_tokens": 4096,
+        }
+        headers = {"Authorization": f"Bearer {self.settings.deepseek_api_key}", "Content-Type": "application/json"}
+        try:
+            async with httpx.AsyncClient(base_url=self.settings.deepseek_base_url, transport=self.transport, timeout=45) as client:
+                response = await client.post("/chat/completions", headers=headers, json=request)
+                response.raise_for_status()
+        except httpx.ReadTimeout as exc:
+            raise ModelResponseError("DeepSeek 请求超时") from exc
+        except httpx.HTTPError as exc:
+            raise ModelResponseError(f"DeepSeek 请求失败：{exc}") from exc
+        try:
+            content = response.json()["choices"][0]["message"]["content"]
+            return response_model.model_validate_json(content)
+        except (KeyError, IndexError, TypeError, ValueError, ValidationError) as exc:
+            raise ModelResponseError("DeepSeek 返回的结构化响应无效") from exc
+

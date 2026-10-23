@@ -32,6 +32,10 @@ def init_db() -> None:
     from .models.project import Project  # noqa: F401
     from .models.document import SourceDocument  # noqa: F401
     from .models.parse_block import ParseBlock  # noqa: F401
+    from .models.fact import Fact  # noqa: F401
+    from .models.requirement import Requirement  # noqa: F401
+    from .models.knowledge_item import KnowledgeItem  # noqa: F401
+    from .models.job import Job  # noqa: F401
 
     Base.metadata.create_all(_engine())
 
