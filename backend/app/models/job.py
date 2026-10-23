@@ -12,6 +12,7 @@ class Job(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     project_id: Mapped[str] = mapped_column(String(36), index=True)
+    target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     kind: Mapped[str] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(30), default="queued")
     progress: Mapped[int] = mapped_column(Integer, default=0)

@@ -11,6 +11,8 @@ from .api.requirements import router as requirements_router
 from .api.knowledge import router as knowledge_router
 from .api.jobs import router as jobs_router
 from .api.extraction import router as extraction_router
+from .api.outlines import router as outlines_router
+from .api.chapters import router as chapters_router
 
 
 @asynccontextmanager
@@ -29,6 +31,8 @@ app.include_router(requirements_router)
 app.include_router(knowledge_router)
 app.include_router(jobs_router)
 app.include_router(extraction_router)
+app.include_router(outlines_router)
+app.include_router(chapters_router)
 
 
 @app.get("/api/health")
