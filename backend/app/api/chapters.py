@@ -49,14 +49,21 @@ def generate(chapter_id: str, session: Session = Depends(get_db)):
     if chapter is None:
         raise HTTPException(status_code=404, detail="章节不存在")
     project = session.get(Project, chapter.project_id)
+    from ..services.fact_library import load_snapshot
+    try:
+        snapshot = load_snapshot(session, project)
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     job = create_job(session, project.id, "章节生成", chapter.id)
     job.status = "running"
     job.progress = 20
     session.commit()
     try:
-        generated = generation_service.generate_chapter(session=session, project=project, chapter=chapter, facts=generation_service.confirmed_facts(session, project.id), knowledge=[])
-        append_version(session, chapter, generated["blocks"], "model", generated.get("citations"), generated.get("open_issues"))
-        chapter.stale = False
+        generated = generation_service.run_generation(session, project, chapter, snapshot)
+        append_version(session, chapter, generated["blocks"], "model", generated.get("citations"), generated.get("open_issues"), generated["facts_version"])
+        chapter.stale = project.facts_version != generated["facts_version"]
         job.status = "succeeded"
         job.progress = 100
         session.commit()

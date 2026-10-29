@@ -5,14 +5,14 @@ from ..models.chapter import Chapter, ChapterVersion
 from ..models.project import Project
 
 
-def append_version(session: Session, chapter: Chapter, blocks: list[dict], source: str, citations=None, open_issues=None) -> ChapterVersion:
+def append_version(session: Session, chapter: Chapter, blocks: list[dict], source: str, citations=None, open_issues=None, fact_version=None) -> ChapterVersion:
     number = session.scalar(select(func.max(ChapterVersion.version_number)).where(ChapterVersion.chapter_id == chapter.id)) or 0
     version = ChapterVersion(
         chapter_id=chapter.id,
         version_number=number + 1,
         blocks=blocks,
         source=source,
-        fact_version=session.get(Project, chapter.project_id).facts_version,
+        fact_version=fact_version if fact_version is not None else session.get(Project, chapter.project_id).facts_version,
         citations=citations or [],
         open_issues=open_issues or [],
     )

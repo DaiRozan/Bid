@@ -15,11 +15,13 @@ def test_retry_does_not_duplicate_chapter_or_export(tmp_path: Path, monkeypatch)
         project_id = client.post(
             "/api/projects", json={"code": "J-1", "name": "任务项目", "engineering_type": "building"}
         ).json()["id"]
+        fact = client.post(f"/api/projects/{project_id}/facts/manual", json={"field_name": "工期", "confirmed_value": "120日历天"}).json()
+        client.post(f"/api/projects/{project_id}/fact-library/publish", json={"acknowledge_issues": True})
         chapter = client.post(
             f"/api/projects/{project_id}/chapters",
             json={"title": "质量管理", "outline_position": 1, "blocks": []},
         ).json()
-        monkeypatch.setattr("app.services.generation.generate_chapter", lambda *args, **kwargs: {"blocks": [], "citations": [], "open_issues": []})
+        monkeypatch.setattr("app.services.generation.generate_chapter", lambda *args, **kwargs: {"blocks": [{"type": "paragraph", "text": "依据{{fact:" + fact["id"] + "}}安排施工"}], "citations": [], "open_issues": []})
         first = client.post(f"/api/chapters/{chapter['id']}/generate").json()
         retried = client.post(f"/api/jobs/{first['job']['id']}/retry")
         chapters = client.get(f"/api/projects/{project_id}/chapters").json()

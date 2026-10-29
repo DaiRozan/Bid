@@ -24,6 +24,7 @@ def test_generation_uses_only_confirmed_facts_and_cited_knowledge(tmp_path: Path
             f"/api/projects/{project_id}/facts/manual",
             json={"field_name": "未知数量", "raw_value": "", "confirmed_value": None},
         )
+        assert client.post(f"/api/projects/{project_id}/fact-library/publish", json={"acknowledge_issues": True}).status_code == 201
         chapter = client.post(
             f"/api/projects/{project_id}/chapters",
             json={"title": "进度计划", "outline_position": 1, "blocks": []},
@@ -31,12 +32,12 @@ def test_generation_uses_only_confirmed_facts_and_cited_knowledge(tmp_path: Path
 
         def fake_generate(*args, **kwargs):
             captured.update(kwargs)
-            return {"blocks": [{"type": "paragraph", "text": "依据已确认工期编制"}], "citations": [], "open_issues": []}
+            return {"blocks": [{"type": "paragraph", "text": "依据{{fact:" + facts["id"] + "}}编制"}], "citations": [], "open_issues": []}
 
         monkeypatch.setattr("app.services.generation.generate_chapter", fake_generate)
         response = client.post(f"/api/chapters/{chapter['id']}/generate")
         assert response.status_code == 200
-    assert captured["facts"] == [{"field_name": "工期", "value": "120日历天"}]
+    assert captured["facts"] == [{"id": facts["id"], "field_name": "工期", "value": "120日历天", "source_type": "confirmed"}]
     assert captured["facts"] != [{"field_name": "未知数量", "value": ""}]
 
 
@@ -49,6 +50,8 @@ def test_generation_failure_keeps_chapter_version_unchanged(tmp_path: Path, monk
         project_id = client.post(
             "/api/projects", json={"code": "G-2", "name": "失败项目", "engineering_type": "building"}
         ).json()["id"]
+        client.post(f"/api/projects/{project_id}/facts/manual", json={"field_name": "工期", "confirmed_value": "120日历天"})
+        client.post(f"/api/projects/{project_id}/fact-library/publish", json={"acknowledge_issues": True})
         chapter = client.post(
             f"/api/projects/{project_id}/chapters",
             json={"title": "安全管理", "outline_position": 1, "blocks": [{"type": "paragraph", "text": "旧版本"}]},

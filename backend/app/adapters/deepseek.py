@@ -28,7 +28,7 @@ class DeepSeekClient:
         request = {
             "model": self.settings.deepseek_model,
             "messages": [
-                {"role": "system", "content": system},
+                {"role": "system", "content": system + "\n必须返回一个 JSON 对象，严格符合以下 JSON Schema；不要输出 Markdown 围栏或额外说明：\n" + json.dumps(response_model.model_json_schema(), ensure_ascii=False)},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ],
             "response_format": {"type": "json_object"},

@@ -75,3 +75,25 @@ def test_curved_boundary_includes_arc_segment_area(tmp_path):
     result = analyze_cad(path)
     area = next(x for x in result["measurements"] if x["type"] == "area")
     assert area["value"] == pytest.approx(math.pi / 2)
+
+
+def test_cad_details_are_preserved_outside_database_with_digest(tmp_path):
+    import gzip
+    import json
+    from test_material_import import configured_client, project
+    from app.db import get_session_factory
+    from app.models.material import MaterialRecord
+    doc = ezdxf.new(); doc.units = 6
+    for i in range(100):
+        doc.modelspace().add_line((i, 0), (i, 2))
+    source = tmp_path / "lines.dxf"; doc.saveas(source)
+    with configured_client(tmp_path) as client:
+        pid = project(client)
+        uploaded = client.post(f"/api/projects/{pid}/documents", files={"file": ("lines.dxf", source.read_bytes())}).json()
+        assert client.post(f"/api/documents/{uploaded['id']}/parse").json()["status"] == "analyzed"
+        with get_session_factory()() as session:
+            record = session.get(MaterialRecord, uploaded["id"])
+            assert len(json.dumps(record.analysis)) < 5000
+            details = json.loads(gzip.decompress(__import__('pathlib').Path(record.analysis["detail_file"]).read_bytes()))
+            assert len(details["measurements"]) == 100
+            assert record.analysis["detail_sha256"]

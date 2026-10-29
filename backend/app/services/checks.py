@@ -55,6 +55,12 @@ def run_checks(session: Session, project: Project) -> list[dict]:
         if version.fact_version != project.facts_version:
             issues.append(ReviewIssue(project_id=project.id, code="stale_fact_version", message="章节依赖的事实版本已过期", location=chapter.title))
         for citation in version.citations:
+            if isinstance(citation, dict) and citation.get("type") == "fact_library":
+                from ..models.fact_snapshot import FactSnapshot
+                snapshot = session.get(FactSnapshot, citation.get("snapshot_id"))
+                if snapshot is None or snapshot.project_id != project.id:
+                    issues.append(ReviewIssue(project_id=project.id, code="citation_missing", message="章节引用的固定事实库版本不存在", location=chapter.title))
+                continue
             item_id = citation.get("knowledge_item_id") if isinstance(citation, dict) else None
             if not item_id or session.get(KnowledgeItem, item_id) is None:
                 issues.append(ReviewIssue(project_id=project.id, code="citation_missing", message="章节引用资料不存在", location=chapter.title))

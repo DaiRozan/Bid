@@ -41,6 +41,7 @@ def test_real_workflow_project_to_docx(tmp_path: Path, monkeypatch):
         fact = client.get(f"/api/projects/{project['id']}/facts").json()[0]
         confirmed = client.put(f"/api/projects/{project['id']}/facts/{fact['id']}", json={"confirmed_value": "120日历天"})
         assert confirmed.status_code == 200
+        assert client.post(f"/api/projects/{project['id']}/fact-library/publish", json={"acknowledge_issues": True}).status_code == 201
 
         outline = client.put(
             f"/api/projects/{project['id']}/outline",
@@ -53,7 +54,7 @@ def test_real_workflow_project_to_docx(tmp_path: Path, monkeypatch):
         ).json()
         monkeypatch.setattr(
             "app.api.chapters.generation_service.generate_chapter",
-            lambda **kwargs: {"blocks": [{"type": "paragraph", "text": "根据已确认工期编制施工部署。"}], "citations": [], "open_issues": []},
+            lambda **kwargs: {"blocks": [{"type": "paragraph", "text": "根据{{fact:" + fact["id"] + "}}编制施工部署。"}], "citations": [], "open_issues": []},
         )
         generated = client.post(f"/api/chapters/{chapter['id']}/generate")
         assert generated.status_code == 200
@@ -69,4 +70,4 @@ def test_real_workflow_project_to_docx(tmp_path: Path, monkeypatch):
 
     document = Document(BytesIO(download.content))
     assert "施工总体部署" in [paragraph.text for paragraph in document.paragraphs]
-    assert "根据已确认工期编制施工部署。" in [paragraph.text for paragraph in document.paragraphs]
+    assert "根据120日历天编制施工部署。" in [paragraph.text for paragraph in document.paragraphs]

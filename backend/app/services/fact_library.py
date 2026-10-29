@@ -45,6 +45,8 @@ def build_draft(session, project):
             issues.append({"document_id": document.id, "message": f"{document.filename}：{document.error_message or '尚未完成解析'}"})
         if not record:
             continue
+        for warning in record.analysis.get("warnings", [])[:10]:
+            issues.append({"document_id": document.id, "message": document.filename + "：" + warning})
         for item in record.analysis.get("items", []):
             source_id = locations.get((document.id, json.dumps(item["location"], sort_keys=True, ensure_ascii=False)))
             facts.append({"id": item["id"], "field_name": f"{item['unit_project']} / {item['name']}", "value": boq_value(item), "unit": item["unit"], "source_type": "boq", "source_block_ids": [source_id] if source_id else [], "document_id": document.id, "archive_path": record.archive_path, "location": item["location"], "attributes": item, "overrides": []})
@@ -84,10 +86,10 @@ def build_draft(session, project):
         fact["overrides"].append({"previous_value": fact["value"], "adopted_value": adoption.value, "reason": adoption.reason, "source_block_ids": adoption.source_block_ids, "adoption_id": adoption.id})
         fact["value"] = adoption.value
         fact["source_block_ids"] = adoption.source_block_ids
-    return {"project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "sha256": d.sha256, "status": d.status} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
+    return {"project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "sha256": d.sha256, "status": d.status, "analysis_summary": records[d.id].analysis.get("summary", {}) if d.id in records else {}, "detail_file": records[d.id].analysis.get("detail_file") if d.id in records else None, "detail_sha256": records[d.id].analysis.get("detail_sha256") if d.id in records else None} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
 
 
-def markdown_files(draft):
+def markdown_files(draft, include_details=False):
     files = {}
     lines = [f"# {draft['project_name']}：采用事实", "", "采用规则：最新明确补疑及清单为准；图纸计算仅作复核。", ""]
     grouped = defaultdict(list)
@@ -107,6 +109,11 @@ def markdown_files(draft):
         for block in blocks:
             lines.extend([f"## 片段 {block.id}", json.dumps(block.location, ensure_ascii=False), "", block.text, ""])
         files["资料/" + document["id"] + ".md"] = "\n".join(lines)
+        if include_details and document.get("detail_file"):
+            data = Path(document["detail_file"]).read_bytes()
+            if hashlib.sha256(data).hexdigest() != document["detail_sha256"]:
+                raise ValueError("图纸分析文件校验失败，请重新分析后发布")
+            files["图纸明细/" + document["id"] + ".json.gz"] = data
     files["图纸算量复核.md"] = "# 图纸计算与待确认摘录\n\n所有计算仅作复核，不自动覆盖清单；实例统计不等于构件工程量。\n\n" + "\n\n".join(json.dumps(r, ensure_ascii=False) for r in draft["review"])
     files["待处理事项.md"] = "# 待处理事项\n\n" + "\n".join("- " + i["message"] for i in draft["issues"])
     return files
@@ -132,7 +139,7 @@ def publish_snapshot(session, project, acknowledge_issues=False):
     root = get_settings().data_dir / "projects" / project.id / "facts"
     staging = root / (".staging-" + uuid4().hex)
     directory = root / f"v{version:04d}"
-    files = markdown_files(draft)
+    files = markdown_files(draft, include_details=True)
     payload = {k: v for k, v in draft.items() if not k.startswith("_")}
     payload.update(version=version, facts_version=project.facts_version + 1, created_at=datetime.now(timezone.utc).isoformat(), acknowledged_issues=draft["issues"])
     files["facts.json"] = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -141,7 +148,7 @@ def publish_snapshot(session, project, acknowledge_issues=False):
         for name, content in files.items():
             target = staging / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            data = content.encode("utf-8")
+            data = content if isinstance(content, bytes) else content.encode("utf-8")
             target.write_bytes(data)
             manifest["files"][name] = hashlib.sha256(data).hexdigest()
         (staging / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
