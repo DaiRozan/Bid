@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -30,25 +30,40 @@ class Adoption(BaseModel):
 
 
 @router.get("")
-def draft(project_id: str, session: Session = Depends(get_db)):
+def draft(project_id: str, section: str = "facts", search: str = "", offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200), session: Session = Depends(get_db)):
     result, directory = write_draft(session, get_project(session, project_id))
     result.pop("_blocks")
     result.update(directory=str(directory), files=[str(p.relative_to(directory)).replace("\\", "/") for p in directory.rglob("*.md")])
+    result["file_labels"] = {}
+    for name in result["files"]:
+        with (directory / name).open(encoding="utf-8") as stream:
+            result["file_labels"][name] = stream.readline().lstrip("# ").strip()
+    result["fact_count"], result["review_count"] = len(result["facts"]), len(result["review"])
+    key = "review" if section == "review" else "facts"
+    entries = result[key]
+    if search.strip():
+        terms = search.strip().lower().split()
+        entries = [item for item in entries if all(term in str(item).lower() for term in terms)]
+    result["filtered_count"] = len(entries)
+    result[key] = entries[offset:offset + limit]
+    result["facts" if key == "review" else "review"] = []
     return result
 
 
 @router.post("/publish", status_code=201)
-def publish(project_id: str, body: Publication, session: Session = Depends(get_db)):
+def publish(project_id: str, body: Publication, summary: bool = False, session: Session = Depends(get_db)):
     try:
-        return publish_snapshot(session, get_project(session, project_id), body.acknowledge_issues)
+        result = publish_snapshot(session, get_project(session, project_id), body.acknowledge_issues)
+        return snapshot_summary(result) if summary else result
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/current")
-def current(project_id: str, session: Session = Depends(get_db)):
+def current(project_id: str, summary: bool = False, session: Session = Depends(get_db)):
     try:
-        return load_snapshot(session, get_project(session, project_id))
+        result = load_snapshot(session, get_project(session, project_id))
+        return snapshot_summary(result) if summary else result
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except RuntimeError as exc:
@@ -79,6 +94,10 @@ def read_file(project_id: str, name: str, published: bool = False, session: Sess
         _, directory = write_draft(session, project)
         files = [str(p.relative_to(directory)).replace("\\", "/") for p in directory.rglob("*.md")]
     target = directory / name
-    if name not in files or not target.resolve().is_relative_to(directory.resolve()):
+    if name not in files or not name.endswith(".md") or not target.resolve().is_relative_to(directory.resolve()):
         raise HTTPException(404, "事实库文件不存在")
     return {"name": name, "content": target.read_text(encoding="utf-8")}
+
+
+def snapshot_summary(result):
+    return {k: result[k] for k in ["snapshot_id", "version", "facts_version", "directory", "files", "created_at"]} | {"fact_count": len(result["facts"]), "review_count": len(result["review"]), "issues": result["issues"]}

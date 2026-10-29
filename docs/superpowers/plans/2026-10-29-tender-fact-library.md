@@ -72,3 +72,10 @@
 ## Execution ledger
 
 - 2026-10-29: User approved design and explicitly authorized choosing/installing DWG tools and autonomous execution. No further routine approval gates; source sample remains untouched.
+- Task 1: complete, fd88e59; backend suite 33 passed. Original archive members use generated storage names, with separate intact archive paths.
+- Task 2: complete, 272e230; backend suite 39 passed. Official ODA package SHA256 0E3FAC3B3C2486CC40BF1D13545EB422786AA5623C90F0B72FCF081085212AAB, Authenticode Valid / OPEN DESIGN ALLIANCE. System installation lacked administrator rights; official administrative extraction to the user's LocalAppData succeeded; real DWG conversion verified.
+- Task 3: complete, 8e00505; backend suite 44 passed, including chronological explicit supplement override and retained source chain.
+- Task 4: complete, e8ad0fd; backend suite 49 passed. Real model generated HTTP 200 in 9.62 seconds from immutable facts; unknown references and unreferenced project digits rejected in tests.
+- Ruling: Keep development in the supplied checkout on codex/tender-fact-library, following the user's autonomous execution instruction and preserving its usable installed dependencies/data. Cost if wrong: changes are visible in this checkout rather than isolated in another directory; commits preserve review/revert history.
+- Ruling: Store full CAD analysis in checksummed compressed JSON outside SQLite, with bounded previews and all original text retained. The real archive initially produced about 900 MB of redundant JSON in SQLite. Cost if wrong: backup/move must include data/projects, not only the database; the snapshot manifest includes copies and checksums.
+- Task 5: UI and reusable real acceptance script implemented; frontend 3 tests and Vite build passed, backend 49 tests passed. Real archive: 17 source documents, 8 DWG, 31 BOQ sheets, 1096 independently counted BOQ items (including 29 ZB-prefixed items), 51 Markdown files; final browser check and independent review pending.

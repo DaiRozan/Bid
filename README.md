@@ -25,13 +25,19 @@ npm --prefix frontend run dev
 ## 使用路径
 
 1. 新建项目并选择建筑工程或市政工程。
-2. 在“资料与事实”上传 `.docx` 或文字型 `.pdf`，确认解析片段和来源位置。
+2. 在“资料与事实”上传完整 `.zip/.rar` 招标资料包，或单个 DOC/DOCX、文字型 PDF、XLS/XLSX、DWG/DXF；系统递归解包并保存来源层级。
 3. 点击“从已解析资料提取事实与要求”，人工修改事实确认值。
-4. 在“要求与目录”编辑编制要求和章节目录，按目录创建章节。
-5. 在“章节工作区”编辑正文或调用 `deepseek-flash` 生成当前章节，人工版本会保留在历史版本中。
+4. 在“固定事实库”查看清单、原文和图纸复核结果；核对补疑，确认采用值，然后发布固定版本。原文、分组清单和图纸计算分别保存为 Markdown，完整 CAD 明细另存压缩 JSON 并纳入版本校验。
+5. 在“要求与目录”编辑要求和目录、创建章节；在“章节工作区”编辑正文或调用 `deepseek-flash`。生成和重试只使用固定版本，采用项目数字必须引用事实；修改草稿不会静默改变已发布值。模型版本记录事实版本和引用。
 6. 运行确定性检查，在“检查与导出”下载可编辑的 `技术标审核稿.docx`。
 
-所有项目、原文件、数据库和导出文件默认保存在 `backend/data/`，刷新页面后仍可继续编辑。导出文件明确标记为审核稿。
+数据位置由启动工作目录和 `.env` 决定。使用根目录的 `run.ps1` 时默认保存在项目根目录 `data/`，刷新页面后仍可继续编辑。固定版本在 `data/projects/<项目ID>/facts/v0001/` 等目录，发布后不应手动改写；校验不符将拒绝写作。导出文件标记为审核稿。
+
+DWG 需要官方 [ODA File Converter](https://www.opendesign.com/guestfiles/oda_file_converter)，可配置 `ODA_CONVERTER_PATH`；也会检测 `C:\Program Files\ODA` 及当前用户 `%LOCALAPPDATA%\TechnicalBid\tools\oda\ODAFileConverter.exe`。DOC 需要 LibreOffice，可配置 `LIBREOFFICE_PATH`。RAR 使用 Windows 自带 `tar.exe`，不执行压缩包中的程序。Python 依赖由 `run.ps1` 安装。
+
+清单按单位工程、分部、编码、名称、完整特征、单位和数量保存，空数量不补零。以最新明确补疑及清单为采用依据；补疑必须有明确目标和原文证据，日期不明确或目标不唯一时列待确认。图纸原文可逐项确认，图形测量仅用于复核，不能自动当作构件工程量。
+
+图纸读取支持文字、属性、标注、嵌套块变换、闭合图形面积、长度、块实例统计，以及明确长宽高属性的体积计算。原图缺单位、含代理对象或施工范围/重复视图未核定时会列出限制，不推定尺寸或体积。此版本没有完成任意 DWG 的全专业语义识别和工程量自动核准。
 
 ## 验证
 
@@ -40,6 +46,14 @@ python -m pytest backend/tests -q
 npm --prefix frontend run test -- --run
 npm --prefix frontend run build
 ```
+
+真实资料验收（单独验收项目；保留原始 ZIP 不改写）：
+
+```powershell
+python -X utf8 scripts/verify_tender.py "招标资料包完整路径.zip" --project-code ACCEPTANCE-20261029 --name "项目名称"
+```
+
+可追加 `--publish-test-snapshot --live-generation`，验证验收版发布及真实模型生成。验收报告位于 `data/acceptance/验收报告.md`；测试发布不表示专业人员已确认项目资料。
 
 ## 当前边界
 

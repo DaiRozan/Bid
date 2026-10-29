@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-export type SourceDocument = { id: string; filename: string; status: string; error_message?: string | null; blocks: { id: string; text: string; location: Record<string, unknown> }[] };
+export type SourceDocument = { id: string; filename: string; status: string; error_message?: string | null; archive_path?: string; block_count: number; analysis_summary?: Record<string, number>; blocks: { id: string; text: string; location: Record<string, unknown> }[] };
 export const listDocuments = (id: string) => apiRequest<SourceDocument[]>(`/projects/${id}/documents`);
 export async function uploadDocument(id: string, file: File): Promise<SourceDocument> {
   const form = new FormData(); form.append("file", file);
