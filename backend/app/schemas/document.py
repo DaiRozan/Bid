@@ -25,4 +25,9 @@ class DocumentRead(BaseModel):
     error_message: str | None
     created_at: datetime
     blocks: list[ParseBlockRead] = []
+    block_count: int = 0
+    archive_path: str | None = None
+    parent_id: str | None = None
+    kind: str = "document"
+    analysis_summary: dict = {}
 
