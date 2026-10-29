@@ -41,6 +41,7 @@ def init_db() -> None:
     from .models.review_issue import ReviewIssue  # noqa: F401
     from .models.export import ExportRecord  # noqa: F401
     from .models.material import MaterialRecord  # noqa: F401
+    from .models.fact_snapshot import FactSnapshot, FactAdoption  # noqa: F401
 
     Base.metadata.create_all(_engine())
 

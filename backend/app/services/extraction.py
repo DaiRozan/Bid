@@ -33,17 +33,18 @@ def persist_extraction(session: Session, project: Project, result: ExtractionRes
     for candidate in [*result.facts, *result.requirements]:
         if any(source_id not in allowed_ids for source_id in candidate.source_block_ids):
             raise ValueError("抽取结果包含无效来源引用")
-    session.execute(delete(Fact).where(Fact.project_id == project.id))
-    session.execute(delete(Requirement).where(Requirement.project_id == project.id))
     grouped: dict[str, list] = {}
     for candidate in result.facts:
         grouped.setdefault(candidate.field_name, []).append(candidate)
     for field_name, candidates in grouped.items():
         status = "conflict" if len({item.raw_value for item in candidates}) > 1 else "unconfirmed"
         for candidate in candidates:
-            session.add(Fact(project_id=project.id, field_name=field_name, raw_value=candidate.raw_value, unit=candidate.unit, source_block_ids=candidate.source_block_ids, status=status))
+            existing = session.scalar(select(Fact).where(Fact.project_id == project.id, Fact.field_name == field_name, Fact.raw_value == candidate.raw_value))
+            if existing is None:
+                session.add(Fact(project_id=project.id, field_name=field_name, raw_value=candidate.raw_value, unit=candidate.unit, source_block_ids=candidate.source_block_ids, status=status))
     for candidate in result.requirements:
-        session.add(Requirement(project_id=project.id, text=candidate.text, category=candidate.category, score=candidate.score, source_block_ids=candidate.source_block_ids))
+        if not session.scalar(select(Requirement).where(Requirement.project_id == project.id, Requirement.text == candidate.text)):
+            session.add(Requirement(project_id=project.id, text=candidate.text, category=candidate.category, score=candidate.score, source_block_ids=candidate.source_block_ids))
     session.commit()
 
 
