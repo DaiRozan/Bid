@@ -18,9 +18,10 @@ class ModelResponseError(RuntimeError):
 
 
 class DeepSeekClient:
-    def __init__(self, settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(self, settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None, *, max_tokens: int = 4096):
         self.settings = settings or get_settings()
         self.transport = transport
+        self.max_tokens = max_tokens
 
     async def complete_json(self, system: str, payload: dict, response_model: type[T]) -> T:
         if not self.settings.deepseek_api_key:
@@ -32,7 +33,7 @@ class DeepSeekClient:
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ],
             "response_format": {"type": "json_object"},
-            "max_tokens": 4096,
+            "max_tokens": self.max_tokens,
         }
         headers = {"Authorization": f"Bearer {self.settings.deepseek_api_key}", "Content-Type": "application/json"}
         try:

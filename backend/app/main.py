@@ -16,6 +16,7 @@ from .api.chapters import router as chapters_router
 from .api.checks import router as checks_router
 from .api.exports import router as exports_router
 from .api.fact_library import router as fact_library_router
+from .api.site_analysis import router as site_analysis_router
 
 
 @asynccontextmanager
@@ -39,6 +40,7 @@ app.include_router(chapters_router)
 app.include_router(checks_router)
 app.include_router(exports_router)
 app.include_router(fact_library_router)
+app.include_router(site_analysis_router)
 
 
 @app.get("/api/health")

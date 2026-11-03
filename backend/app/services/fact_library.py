@@ -82,10 +82,26 @@ def build_draft(session, project):
     facts = list(unique.values())
     from .fact_adoption import apply_explicit_changes, preserve_original, parse_quantity
     issues.extend(apply_explicit_changes(facts, documents, records, per_document, boq_value))
+    from .site_analysis import load_report, report_entries
+    site_report = load_report(session, project.id)
+    review.extend(report_entries(site_report))
     index = {f["id"]: f for f in facts}
     candidates = {f["id"]: f for f in review if f.get("adoptable")}
-    for adoption in session.scalars(select(FactAdoption).where(FactAdoption.project_id == project.id).order_by(FactAdoption.created_at, FactAdoption.id)):
+    adoptions = list(session.scalars(select(FactAdoption).where(FactAdoption.project_id == project.id).order_by(FactAdoption.created_at, FactAdoption.id)))
+    latest_site_adoption = next((a for a in reversed(adoptions) if a.target_id.startswith("site-")), None)
+    site_prefix = "site-" + latest_site_adoption.target_id.split("-")[1] + "-" if latest_site_adoption else None
+    for adoption in adoptions:
+        if site_prefix and adoption.target_id.startswith("site-") and not adoption.target_id.startswith(site_prefix):
+            continue
         fact = index.get(adoption.target_id)
+        if fact is None and adoption.target_id.startswith("site-") and adoption.target_id not in candidates:
+            from .site_analysis import report_path
+            report_id = adoption.target_id.split("-")[1]
+            history_path = report_path(project.id).with_name(report_id + ".json")
+            if history_path.exists():
+                historical = json.loads(history_path.read_text(encoding="utf-8"))
+                candidates.update({e["id"]:e for e in report_entries(historical)})
+                issues.append({"message":"已采用的历史现场分析仍保留；资料或分析已更新，请核对新旧结论：" + adoption.target_id})
         if fact is None and adoption.target_id in candidates:
             candidate = candidates[adoption.target_id]
             fact = {**candidate, "source_type": candidate["record_type"], "overrides": []}
@@ -107,11 +123,12 @@ def build_draft(session, project):
         fact["overrides"].append({"previous_value": fact["value"], "previous_source_block_ids": list(fact["source_block_ids"]), "adopted_value": adopted_value, "entered_value": adoption.value, "reason": adoption.reason, "source_block_ids": adoption.source_block_ids, "adoption_id": adoption.id})
         fact["value"] = adopted_value
         fact["source_block_ids"] = adoption.source_block_ids
-    return {"project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "origin_paths": list(dict.fromkeys(o["archive_path"] for o in records[d.id].analysis.get("origins", []))) or [document_paths[d.id]] if d.id in records else [d.filename], "sha256": d.sha256, "status": d.status, "analysis_summary": records[d.id].analysis.get("summary", {}) if d.id in records else {}, "detail_file": records[d.id].analysis.get("detail_file") if d.id in records else None, "detail_sha256": records[d.id].analysis.get("detail_sha256") if d.id in records else None} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
+    return {"site_analysis": site_report, "project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "origin_paths": list(dict.fromkeys(o["archive_path"] for o in records[d.id].analysis.get("origins", []))) or [document_paths[d.id]] if d.id in records else [d.filename], "sha256": d.sha256, "status": d.status, "analysis_summary": records[d.id].analysis.get("summary", {}) if d.id in records else {}, "detail_file": records[d.id].analysis.get("detail_file") if d.id in records else None, "detail_sha256": records[d.id].analysis.get("detail_sha256") if d.id in records else None} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
 
 
 def markdown_files(draft, include_details=False):
-    files = {}
+    from .site_analysis import report_markdown
+    files = {"现场条件与施工影响.md": report_markdown(draft.get("site_analysis"))}
     lines = [f"# {draft['project_name']}：采用事实", "", "采用规则：最新明确补疑及清单为准；图纸计算仅作复核。", ""]
     grouped = defaultdict(list)
     for fact in draft["facts"]:

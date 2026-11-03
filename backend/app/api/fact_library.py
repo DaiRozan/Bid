@@ -30,7 +30,7 @@ class Adoption(BaseModel):
 
 
 @router.get("")
-def draft(project_id: str, section: str = "facts", search: str = "", offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200), session: Session = Depends(get_db)):
+def draft(project_id: str, section: str = "facts", search: str = "", exclude_drawings: bool = False, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200), session: Session = Depends(get_db)):
     result, directory = write_draft(session, get_project(session, project_id))
     result.pop("_blocks")
     result.update(directory=str(directory), files=[str(p.relative_to(directory)).replace("\\", "/") for p in directory.rglob("*.md")])
@@ -41,6 +41,8 @@ def draft(project_id: str, section: str = "facts", search: str = "", offset: int
     result["fact_count"], result["review_count"] = len(result["facts"]), len(result["review"])
     key = "review" if section == "review" else "facts"
     entries = result[key]
+    if exclude_drawings and key == "review":
+        entries = [e for e in entries if e.get("record_type") not in {"drawing_note", "cad_measurement", "site_analysis"}]
     if search.strip():
         terms = search.strip().lower().split()
         entries = [item for item in entries if all(term in str(item).lower() for term in terms)]

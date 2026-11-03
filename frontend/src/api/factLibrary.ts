@@ -13,7 +13,7 @@ export type LibraryDraft = {
 };
 export type Snapshot = { version: number; snapshot_id: string; fact_count: number; review_count: number; files: string[]; directory: string; issues: {message: string}[] };
 export const getLibrary = (id: string, section = "facts", search = "", offset = 0) =>
-  apiRequest<LibraryDraft>(`/projects/${id}/fact-library?${new URLSearchParams({ section, search, offset: String(offset), limit: "50" })}`);
+  apiRequest<LibraryDraft>(`/projects/${id}/fact-library?${new URLSearchParams({ section, search, offset: String(offset), limit: "50", exclude_drawings:"true" })}`);
 export const getSnapshot = async (id: string): Promise<Snapshot | null> => {
   const response = await fetch(`/api/projects/${id}/fact-library/current?summary=true`);
   if (response.status === 404) return null;
