@@ -15,9 +15,10 @@ def test_site_report_can_request_sufficient_structured_output_budget():
     def handler(request):
         import json
         assert json.loads(request.content)['max_tokens'] == 8192
+        assert request.extensions['timeout']['read'] == 120
         return httpx.Response(200,json={'choices':[{'message':{'content':'{"summary":"ok"}'}}]})
     settings=get_settings().model_copy(update={'deepseek_api_key':'test'})
-    client=DeepSeekClient(settings,httpx.MockTransport(handler),max_tokens=8192)
+    client=DeepSeekClient(settings,httpx.MockTransport(handler),max_tokens=8192,timeout_seconds=120)
     assert asyncio.run(client.complete_json('JSON',{},Answer)).summary == 'ok'
 
 

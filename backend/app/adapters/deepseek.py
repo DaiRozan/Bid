@@ -18,10 +18,11 @@ class ModelResponseError(RuntimeError):
 
 
 class DeepSeekClient:
-    def __init__(self, settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None, *, max_tokens: int = 4096):
+    def __init__(self, settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None, *, max_tokens: int = 4096, timeout_seconds: float = 45):
         self.settings = settings or get_settings()
         self.transport = transport
         self.max_tokens = max_tokens
+        self.timeout_seconds = timeout_seconds
 
     async def complete_json(self, system: str, payload: dict, response_model: type[T]) -> T:
         if not self.settings.deepseek_api_key:
@@ -37,7 +38,7 @@ class DeepSeekClient:
         }
         headers = {"Authorization": f"Bearer {self.settings.deepseek_api_key}", "Content-Type": "application/json"}
         try:
-            async with httpx.AsyncClient(base_url=self.settings.deepseek_base_url, transport=self.transport, timeout=45) as client:
+            async with httpx.AsyncClient(base_url=self.settings.deepseek_base_url, transport=self.transport, timeout=self.timeout_seconds) as client:
                 response = await client.post("/chat/completions", headers=headers, json=request)
                 response.raise_for_status()
         except httpx.ReadTimeout as exc:

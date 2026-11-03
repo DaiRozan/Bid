@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from sqlalchemy import select, func
@@ -23,6 +24,20 @@ from ..models.requirement import Requirement
 def boq_value(item):
     quantity = item["quantity"] if item["quantity"] is not None else "未载明（不得推测）"
     return f"{item['unit_project']} / {item['section']} / {item['name']}；项目编码：{item['code']}；项目特征：{item['features']}；工程量：{quantity} {item['unit']}"
+
+
+def cost_reference(document, record):
+    # Parent archive/folder names such as 清单控制价 must not classify the tender workbook.
+    names = [document.filename, *[o['archive_path'] for o in record.analysis.get('origins',[])]]
+    basenames = [n.replace('\\','/').rsplit('/',1)[-1] for n in names]
+    return bool(basenames) and all('控制价' in n or '最高投标限价' in n for n in basenames)
+
+
+def normalized_quantity(value):
+    try:
+        return Decimal(str(value).replace(',','')).normalize()
+    except InvalidOperation:
+        return value
 
 
 def build_draft(session, project):
@@ -48,6 +63,8 @@ def build_draft(session, project):
         for warning in record.analysis.get("warnings", [])[:10]:
             issues.append({"document_id": document.id, "message": document.filename + "：" + warning})
         for item in record.analysis.get("items", []):
+            if cost_reference(document, record):
+                continue
             source_id = locations.get((document.id, json.dumps(item["location"], sort_keys=True, ensure_ascii=False)))
             facts.append({"id": item["id"], "field_name": f"{item['unit_project']} / {item['name']}", "value": boq_value(item), "unit": item["unit"], "source_type": "boq", "source_block_ids": [source_id] if source_id else [], "document_id": document.id, "archive_path": record.archive_path, "location": item["location"], "attributes": item, "overrides": []})
         for measurement in record.analysis.get("measurements", []):
@@ -69,6 +86,32 @@ def build_draft(session, project):
                     match = re.match(r"\s*(?:\d+(?:\.\d+)*[、.．]?\s*)?(项目名称|工程名称|建设地点|计划工期|质量标准|建设规模)\s*[:：]\s*(.{2,})", line)
                     if match:
                         review.append({"id": "source-" + block.id + "-" + hashlib.sha256(line.encode()).hexdigest()[:8], "field_name": match[1], "value": match[2].strip(), "source_block_ids": [block.id], "document_id": document.id, "archive_path": record.archive_path, "location": block.location, "record_type": "source_fact", "adoptable": True})
+    cross_check = {"compared":0,"conflicts":0,"unmatched":0}
+    tender_index = defaultdict(list)
+    for fact in facts:
+        if fact.get('source_type') == 'boq':
+            tender_index[(fact['attributes']['unit_project'],fact['attributes']['code'])].append(fact)
+    for document in documents:
+        record = records.get(document.id)
+        if not record or not cost_reference(document, record):
+            continue
+        for item in record.analysis.get('items',[]):
+            targets = tender_index.get((item['unit_project'],item['code']),[])
+            if len(targets)!=1:
+                cross_check['unmatched']+=1
+                continue
+            target = targets[0]; original = target['attributes']
+            same = normalized_quantity(original['quantity'])==normalized_quantity(item['quantity']) and all(re.sub(r'\s+','',str(original[k]))==re.sub(r'\s+','',str(item[k])) for k in ['name','features','unit'])
+            cross_check['compared']+=1
+            source_id = locations.get((document.id,json.dumps(item['location'],sort_keys=True,ensure_ascii=False)))
+            target.setdefault('cross_checks',[]).append({'document_id':document.id,'location':item['location'],'matches':same,'quantity':item['quantity'],'source_block_id':source_id})
+            if same:
+                if source_id:target['source_block_ids']=list(dict.fromkeys([*target['source_block_ids'],source_id]))
+            else:
+                cross_check['conflicts']+=1
+                issues.append({'document_id':document.id,'message':f"控制价与招标清单不一致，保留清单值待核对：{item['unit_project']} / {item['code']} / {item['name']}"})
+        if cross_check['unmatched']:
+            issues.append({'document_id':document.id,'message':f"控制价存在未能唯一对应招标清单的条目，未作为新增采用事实：{cross_check['unmatched']}条"})
     # Older imports may contain byte-identical workbooks as separate documents.
     unique = {}
     for fact in facts:
@@ -123,7 +166,7 @@ def build_draft(session, project):
         fact["overrides"].append({"previous_value": fact["value"], "previous_source_block_ids": list(fact["source_block_ids"]), "adopted_value": adopted_value, "entered_value": adoption.value, "reason": adoption.reason, "source_block_ids": adoption.source_block_ids, "adoption_id": adoption.id})
         fact["value"] = adopted_value
         fact["source_block_ids"] = adoption.source_block_ids
-    return {"site_analysis": site_report, "project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "origin_paths": list(dict.fromkeys(o["archive_path"] for o in records[d.id].analysis.get("origins", []))) or [document_paths[d.id]] if d.id in records else [d.filename], "sha256": d.sha256, "status": d.status, "analysis_summary": records[d.id].analysis.get("summary", {}) if d.id in records else {}, "detail_file": records[d.id].analysis.get("detail_file") if d.id in records else None, "detail_sha256": records[d.id].analysis.get("detail_sha256") if d.id in records else None} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
+    return {"boq_cross_check": cross_check, "site_analysis": site_report, "project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "origin_paths": list(dict.fromkeys(o["archive_path"] for o in records[d.id].analysis.get("origins", []))) or [document_paths[d.id]] if d.id in records else [d.filename], "sha256": d.sha256, "status": d.status, "analysis_summary": records[d.id].analysis.get("summary", {}) if d.id in records else {}, "detail_file": records[d.id].analysis.get("detail_file") if d.id in records else None, "detail_sha256": records[d.id].analysis.get("detail_sha256") if d.id in records else None} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
 
 
 def markdown_files(draft, include_details=False):
