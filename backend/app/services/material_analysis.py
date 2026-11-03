@@ -18,7 +18,7 @@ def analyze_material(session, document):
         text = f"单位工程：{item['unit_project']}；分部：{item['section']}；编码：{item['code']}；名称：{item['name']}；特征：{item['features']}；单位：{item['unit']}；工程量：{item['quantity'] if item['quantity'] is not None else '缺失'}"
         blocks.append((text, item["location"]))
     sync_blocks(session, document.id, blocks)
-    record.analysis = compact_cad_analysis(path, analysis) if document.extension in {".dwg", ".dxf"} else analysis
+    record.analysis = {"origins": record.analysis.get("origins", []), **(compact_cad_analysis(path, analysis) if document.extension in {".dwg", ".dxf"} else analysis)}
     document.status = "analyzed"
     document.error_message = None
     session.commit()

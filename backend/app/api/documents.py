@@ -25,6 +25,7 @@ def serialize_document(session: Session, document: SourceDocument) -> dict:
     record = session.get(MaterialRecord, document.id)
     if record:
         result.update(archive_path=record.archive_path, parent_id=record.parent_id, kind=record.kind, analysis_summary=record.analysis.get("summary", {}))
+        result["origin_paths"] = list(dict.fromkeys(o["archive_path"] for o in record.analysis.get("origins", []))) or [record.archive_path]
     return result
 
 
@@ -41,6 +42,7 @@ async def upload_document(project_id: str, file: UploadFile = File(...), session
     existing = session.scalar(select(SourceDocument).where(SourceDocument.project_id == project_id, SourceDocument.sha256 == sha256))
     if existing:
         path.unlink(missing_ok=True)
+        ensure_record(session, existing, archive_path=file.filename or "未命名文件")
         return serialize_document(session, existing)
     document = SourceDocument(
         project_id=project_id,

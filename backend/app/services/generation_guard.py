@@ -2,8 +2,20 @@
 import re
 
 from ..schemas.chapter import ChapterBlock
+from ..schemas.generation import Generated
 
-FACT_TOKEN = re.compile(r"\{\{fact:([A-Za-z0-9_-]+)\}\}")
+def available_fields(fact):
+    fields = {"value": fact["value"]}
+    if fact.get("source_type") == "boq":
+        attributes = fact.get("attributes", {})
+        scope = " / ".join(str(attributes.get(k) or "未载明") for k in ["unit_project", "name"])
+        labels = {"name": "名称", "unit_project": "单位工程", "features": "项目特征", "quantity": "工程量", "unit": "单位"}
+        for key in ["name", "unit_project", "features", "quantity", "unit"]:
+            value = attributes.get(key)
+            if value is not None and value != "":
+                suffix = " " + str(attributes.get("unit") or "未载明单位") if key == "quantity" else ""
+                fields[key] = f"{scope}；{labels[key]}：{value}{suffix}"
+    return fields
 
 
 def select_facts(snapshot, chapter):
@@ -20,6 +32,7 @@ def select_facts(snapshot, chapter):
     selected, chars = [], 0
     for fact in ordered:
         item = {k: fact[k] for k in ["id", "field_name", "value", "source_type"]}
+        item["fields"] = available_fields(fact)
         if chars + len(item["value"]) > 22000 or len(selected) >= 60:
             continue
         selected.append(item)
@@ -32,31 +45,28 @@ def select_facts(snapshot, chapter):
 def validate_generated(snapshot, generated, permitted_ids):
     facts = {f["id"]: f for f in snapshot["facts"] if f["id"] in permitted_ids}
     references = set()
-    blocks = generated.get("blocks", [])
-    if not blocks:
-        raise ValueError("模型未返回有效正文")
+    parsed = Generated.model_validate(generated)
 
-    def render(text):
-        tokens = FACT_TOKEN.findall(text)
-        if any(token not in facts for token in tokens):
-            raise ValueError("模型引用了当前固定版本之外的事实")
-        literal = FACT_TOKEN.sub("", text)
-        if "{{fact:" in literal or re.search(r"\d|[零一二两三四五六七八九十百千万]+(?:平方米|立方米|米|吨|层|个|套|天)", literal):
-            raise ValueError("模型输出含未通过事实库引用的项目数字或规格，已拒绝保存")
-        references.update(tokens)
-        return FACT_TOKEN.sub(lambda match: facts[match[1]]["value"], text)
+    def render(parts):
+        output = []
+        for part in parts:
+            if part.kind == "method":
+                output.append(part.text)
+                continue
+            fact = facts.get(part.fact_id)
+            if fact is None or part.field not in available_fields(fact):
+                raise ValueError("模型引用了当前固定版本之外的事实或字段")
+            references.add(part.fact_id)
+            output.append(available_fields(fact)[part.field])
+        return "".join(output)
 
     rendered = []
-    for raw in blocks:
-        block = ChapterBlock.model_validate(raw).model_dump()
-        if block["type"] == "paragraph":
-            block["text"] = render(block["text"])
+    for raw in parsed.blocks:
+        if raw.type == "paragraph":
+            block = {"type": "paragraph", "text": render(raw.parts)}
         else:
-            block["rows"] = [[render(cell) for cell in row] for row in block["rows"]]
-        rendered.append(block)
-    for citation in generated.get("citations", []):
-        if citation.get("fact_id") and citation["fact_id"] not in facts:
-            raise ValueError("模型引用了不存在的项目事实")
+            block = {"type": "table", "rows": [[render(cell) for cell in row] for row in raw.rows]}
+        rendered.append(ChapterBlock.model_validate(block).model_dump())
     if not references:
         raise ValueError("模型正文没有引用已固定项目事实，已拒绝保存")
-    return {"blocks": rendered, "citations": [{"type": "fact_library", "snapshot_id": snapshot["snapshot_id"], "version": snapshot["version"], "fact_ids": sorted(references)}], "open_issues": generated.get("open_issues", []), "facts_version": snapshot["facts_version"]}
+    return {"blocks": rendered, "citations": [{"type": "fact_library", "snapshot_id": snapshot["snapshot_id"], "version": snapshot["version"], "fact_ids": sorted(references)}], "open_issues": parsed.open_issues, "facts_version": snapshot["facts_version"]}

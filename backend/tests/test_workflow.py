@@ -54,7 +54,7 @@ def test_real_workflow_project_to_docx(tmp_path: Path, monkeypatch):
         ).json()
         monkeypatch.setattr(
             "app.api.chapters.generation_service.generate_chapter",
-            lambda **kwargs: {"blocks": [{"type": "paragraph", "text": "根据{{fact:" + fact["id"] + "}}编制施工部署。"}], "citations": [], "open_issues": []},
+            lambda **kwargs: {"blocks": [{"type": "paragraph", "parts": [{"kind": "fact", "fact_id": fact["id"], "field": "value"}]}]},
         )
         generated = client.post(f"/api/chapters/{chapter['id']}/generate")
         assert generated.status_code == 200
@@ -70,4 +70,4 @@ def test_real_workflow_project_to_docx(tmp_path: Path, monkeypatch):
 
     document = Document(BytesIO(download.content))
     assert "施工总体部署" in [paragraph.text for paragraph in document.paragraphs]
-    assert "根据120日历天编制施工部署。" in [paragraph.text for paragraph in document.paragraphs]
+    assert "120日历天" in [paragraph.text for paragraph in document.paragraphs]

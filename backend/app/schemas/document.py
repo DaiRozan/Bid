@@ -27,6 +27,7 @@ class DocumentRead(BaseModel):
     blocks: list[ParseBlockRead] = []
     block_count: int = 0
     archive_path: str | None = None
+    origin_paths: list[str] = []
     parent_id: str | None = None
     kind: str = "document"
     analysis_summary: dict = {}

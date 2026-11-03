@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--name", default="招标资料验收项目")
     parser.add_argument("--publish-test-snapshot", action="store_true")
     parser.add_argument("--live-generation", action="store_true")
+    parser.add_argument("--reanalyze-materials", action="store_true", help="使用当前适配器重新分析清单和图纸，不修改旧固定版本")
     args = parser.parse_args()
     source = args.archive.resolve(strict=True)
     os.chdir(ROOT)
@@ -48,6 +49,13 @@ def main():
         response.raise_for_status()
         response = client.post(f"/api/documents/{response.json()['id']}/parse")
         response.raise_for_status()
+        if args.reanalyze_materials:
+            materials = client.get(f"/api/projects/{pid}/documents").json()
+            for item in materials:
+                if item["extension"] in {".xls", ".xlsx", ".dwg", ".dxf"}:
+                    print("重新分析：" + item["filename"], flush=True)
+                    checked = client.post(f"/api/documents/{item['id']}/parse")
+                    checked.raise_for_status()
         documents = client.get(f"/api/projects/{pid}/documents").json()
         draft = client.get(f"/api/projects/{pid}/fact-library"); draft.raise_for_status()
         draft = draft.json()
@@ -97,7 +105,9 @@ def main():
             rows.append("验收固定版本目录：" + report["snapshot"]["directory"])
         rows += ["", "## 图纸读取与算量边界", "", "已验证块变换、闭合区域面积、块实例计数，以及明确长宽高属性的体积计算。图纸测量保留图元和公式，尚未核定图例、多视图、楼层和施工计量范围，不能当成已核准构件工程量。原图单位不明或代理对象信息不完整的内容保留待复核；真实图纸缺少明确高度时不生成体积。", "", "## 待处理事项", ""]
         rows += ["- " + issue["message"] for issue in draft["issues"]]
-        rows += ["", "## 写作验证", "", "生成接口和重试均要求固定事实版本；项目数字通过事实引用替换，越界引用或未引用数字被拒绝。验收发布仅用于测试机制，不表示专业人员已审核本项目的补疑和工程量。"]
+        rows += ["", "## 写作验证", "", "生成接口和重试均要求固定事实版本；项目事实通过类型化引用由服务端插入，通用叙述只能选择预设语句，越界引用、任意项目属性和自由文本被拒绝。编制要求来自同一固定版本。验收发布仅用于测试机制，不表示专业人员已审核本项目的补疑和工程量。"]
+        if "generation" in report:
+            rows.append(f"当前协议真实模型生成 HTTP：{report['generation']['status_code']}")
         (output / "验收报告.md").write_text("\n".join(rows), encoding="utf-8")
         print(json.dumps({"report": str(output / "验收报告.md"), "files": len(documents), "facts": draft["fact_count"], "independent_boq_items": independent, "failures": len(failures), "seconds": report["seconds"]}, ensure_ascii=False))
         if failures or report["boq_count_matches"] is False or ("generation" in report and report["generation"]["status_code"] != 200):

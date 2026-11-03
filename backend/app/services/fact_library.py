@@ -69,7 +69,18 @@ def build_draft(session, project):
                     match = re.match(r"\s*(?:\d+(?:\.\d+)*[、.．]?\s*)?(项目名称|工程名称|建设地点|计划工期|质量标准|建设规模)\s*[:：]\s*(.{2,})", line)
                     if match:
                         review.append({"id": "source-" + block.id + "-" + hashlib.sha256(line.encode()).hexdigest()[:8], "field_name": match[1], "value": match[2].strip(), "source_block_ids": [block.id], "document_id": document.id, "archive_path": record.archive_path, "location": block.location, "record_type": "source_fact", "adoptable": True})
-    from .fact_adoption import apply_explicit_changes
+    # Older imports may contain byte-identical workbooks as separate documents.
+    unique = {}
+    for fact in facts:
+        previous = unique.get(fact["id"])
+        if previous is not None:
+            if previous["value"] != fact["value"]:
+                raise ValueError("同一事实 ID 存在不同内容，请重新解析资料")
+            previous["source_block_ids"] = list(dict.fromkeys(previous["source_block_ids"] + fact["source_block_ids"]))
+        else:
+            unique[fact["id"]] = fact
+    facts = list(unique.values())
+    from .fact_adoption import apply_explicit_changes, preserve_original, parse_quantity
     issues.extend(apply_explicit_changes(facts, documents, records, per_document, boq_value))
     index = {f["id"]: f for f in facts}
     candidates = {f["id"]: f for f in review if f.get("adoptable")}
@@ -83,10 +94,20 @@ def build_draft(session, project):
         if fact is None:
             issues.append({"message": "采用记录的原始事实已不存在，请核对：" + adoption.target_id})
             continue
-        fact["overrides"].append({"previous_value": fact["value"], "adopted_value": adoption.value, "reason": adoption.reason, "source_block_ids": adoption.source_block_ids, "adoption_id": adoption.id})
-        fact["value"] = adoption.value
+        preserve_original(fact)
+        adopted_value = adoption.value
+        if fact.get("source_type") == "boq":
+            quantity = parse_quantity(adoption.value, fact["unit"])
+            fact["attributes"] = {**fact["attributes"], "quantity": quantity}
+            if quantity is None:
+                fact["attributes"]["adopted_text"] = adoption.value
+                adopted_value = f"{fact['attributes']['unit_project']} / {fact['attributes']['name']}；人工采用内容：{adoption.value}"
+            else:
+                adopted_value = boq_value(fact["attributes"])
+        fact["overrides"].append({"previous_value": fact["value"], "previous_source_block_ids": list(fact["source_block_ids"]), "adopted_value": adopted_value, "entered_value": adoption.value, "reason": adoption.reason, "source_block_ids": adoption.source_block_ids, "adoption_id": adoption.id})
+        fact["value"] = adopted_value
         fact["source_block_ids"] = adoption.source_block_ids
-    return {"project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "sha256": d.sha256, "status": d.status, "analysis_summary": records[d.id].analysis.get("summary", {}) if d.id in records else {}, "detail_file": records[d.id].analysis.get("detail_file") if d.id in records else None, "detail_sha256": records[d.id].analysis.get("detail_sha256") if d.id in records else None} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
+    return {"project_id": project.id, "project_name": project.name, "facts": facts, "review": review, "issues": issues, "documents": [{"id": d.id, "filename": d.filename, "archive_path": document_paths[d.id], "origin_paths": list(dict.fromkeys(o["archive_path"] for o in records[d.id].analysis.get("origins", []))) or [document_paths[d.id]] if d.id in records else [d.filename], "sha256": d.sha256, "status": d.status, "analysis_summary": records[d.id].analysis.get("summary", {}) if d.id in records else {}, "detail_file": records[d.id].analysis.get("detail_file") if d.id in records else None, "detail_sha256": records[d.id].analysis.get("detail_sha256") if d.id in records else None} for d in documents], "requirements": [{"id": r.id, "text": r.text, "category": r.category, "source_block_ids": r.source_block_ids} for r in session.scalars(select(Requirement).where(Requirement.project_id == project.id))], "_blocks": per_document}
 
 
 def markdown_files(draft, include_details=False):
@@ -96,7 +117,7 @@ def markdown_files(draft, include_details=False):
     for fact in draft["facts"]:
         lines.extend([f"## {fact['field_name']}", f"事实 ID：{fact['id']}", "", fact["value"], "", "出处片段：" + "、".join(fact.get("source_block_ids", [])), ""])
         for override in fact.get("overrides", []):
-            lines.extend([f"覆盖记录：{override['previous_value']} → {override['adopted_value']}", f"采用原因：{override['reason']}", ""])
+            lines.extend([f"覆盖记录：{override['previous_value']} → {override['adopted_value']}", "原出处片段：" + "、".join(override.get("previous_source_block_ids", [])), "本次依据：" + "、".join(override.get("source_block_ids", [])), f"采用原因：{override['reason']}", ""])
         if fact.get("source_type") == "boq":
             grouped[fact["attributes"]["unit_project"]].append(fact)
     files["采用事实.md"] = "\n".join(lines)
@@ -106,6 +127,7 @@ def markdown_files(draft, include_details=False):
     for document in draft["documents"]:
         blocks = draft["_blocks"][document["id"]]
         lines = ["# " + document["filename"], "", "原始路径：" + document["archive_path"], "SHA256：" + document["sha256"], ""]
+        lines.extend("资料出现位置：" + path for path in document.get("origin_paths", []))
         for block in blocks:
             lines.extend([f"## 片段 {block.id}", json.dumps(block.location, ensure_ascii=False), "", block.text, ""])
         files["资料/" + document["id"] + ".md"] = "\n".join(lines)

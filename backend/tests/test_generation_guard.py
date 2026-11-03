@@ -33,11 +33,11 @@ def test_generation_uses_frozen_fact_value_and_rejects_unsupported_numbers(tmp_p
         ch = chapter(client, pid)
         def generate(**kwargs):
             assert kwargs["facts"][0]["value"] == "120日历天"
-            return {"blocks": [{"type": "paragraph", "text": "工期为{{fact:" + fact["id"] + "}}。"}], "citations": [], "open_issues": []}
+            return {"blocks": [{"type": "paragraph", "parts": [{"kind": "fact", "fact_id": fact["id"], "field": "value"}]}]}
         monkeypatch.setattr("app.services.generation.generate_chapter", generate)
         response = client.post(f"/api/chapters/{ch['id']}/generate")
         assert response.status_code == 200
-        assert response.json()["chapter"]["versions"][-1]["blocks"][0]["text"] == "工期为120日历天。"
+        assert response.json()["chapter"]["versions"][-1]["blocks"][0]["text"] == "120日历天"
         monkeypatch.setattr("app.services.generation.generate_chapter", lambda **kw: {"blocks": [{"type": "paragraph", "text": "工期{{fact:" + fact["id"] + "}}，建筑面积999平方米。"}]})
         rejected = client.post(f"/api/chapters/{ch['id']}/generate")
         assert rejected.status_code == 502

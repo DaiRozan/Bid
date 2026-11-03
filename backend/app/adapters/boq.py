@@ -74,13 +74,28 @@ def analyze_boq(path: Path) -> dict:
                 if match:
                     unit_project = match[1].strip()
         section = ""
+        last_item = None
         before = len(items)
         for index in range(header_row + 1, len(rows)):
             row = rows[index]
+            scope = next((m[1].strip() for cell in row if (m := re.search(r"(?:工程名称|项目名称)\s*[:：]\s*(.+)", cell_text(cell)))), None)
+            if scope:
+                if scope != unit_project:
+                    unit_project, section, last_item = scope, "", None
+                continue
+            normalized = [re.sub(r"\s+", "", cell_text(c)) for c in row]
+            columns = {key: next((i for i, text in enumerate(normalized) if text in values), None) for key, values in aliases.items()}
+            if all(columns[key] is not None for key in ["code", "name", "quantity"]):
+                header = columns
+                continue
             def value(key):
                 col = header[key]
                 return cell_text(row[col]) if col is not None and col < len(row) else ""
             code, name, quantity = value("code"), value("name"), value("quantity")
+            if not code and not name and not quantity and value("features") and last_item is not None:
+                last_item["features"] += "\n" + value("features")
+                last_item["location"].setdefault("continuation_rows", []).append(index + 1)
+                continue
             if not name or name == "项目名称":
                 continue
             # Numeric codes are sometimes stored without their leading zero.
@@ -89,11 +104,13 @@ def analyze_boq(path: Path) -> dict:
             if not re.fullmatch(r"(?:[A-Za-z]{0,5})?\d{12,}", code):
                 if name and code and len(code) < 12 and not quantity and "合计" not in name:
                     section = name
+                    last_item = None
                 continue
             location = {"kind": "spreadsheet", "sheet": sheet_name, "row": index + 1}
             item_id = "boq-" + hashlib.sha256(f"{digest}:{sheet_name}:{index+1}".encode()).hexdigest()[:24]
             item = {"id": item_id, "unit_project": unit_project or sheet_name, "section": section, "code": code, "name": name, "features": value("features"), "unit": value("unit"), "quantity": quantity or None, "location": location}
             items.append(item)
+            last_item = item
             if not quantity:
                 cause = "公式缺少计算缓存" if missing_formulas.get((index + 1, header["quantity"])) else "原表工程量为空"
                 warnings.append(f"{sheet_name} 第{index+1}行：{cause}，保留空值")

@@ -32,12 +32,12 @@ def test_generation_uses_only_confirmed_facts_and_cited_knowledge(tmp_path: Path
 
         def fake_generate(*args, **kwargs):
             captured.update(kwargs)
-            return {"blocks": [{"type": "paragraph", "text": "依据{{fact:" + facts["id"] + "}}编制"}], "citations": [], "open_issues": []}
+            return {"blocks": [{"type": "paragraph", "parts": [{"kind": "fact", "fact_id": facts["id"], "field": "value"}]}]}
 
         monkeypatch.setattr("app.services.generation.generate_chapter", fake_generate)
         response = client.post(f"/api/chapters/{chapter['id']}/generate")
         assert response.status_code == 200
-    assert captured["facts"] == [{"id": facts["id"], "field_name": "工期", "value": "120日历天", "source_type": "confirmed"}]
+    assert captured["facts"] == [{"id": facts["id"], "field_name": "工期", "value": "120日历天", "source_type": "confirmed", "fields": {"value": "120日历天"}}]
     assert captured["facts"] != [{"field_name": "未知数量", "value": ""}]
 
 

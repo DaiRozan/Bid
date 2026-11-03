@@ -21,7 +21,7 @@ def test_retry_does_not_duplicate_chapter_or_export(tmp_path: Path, monkeypatch)
             f"/api/projects/{project_id}/chapters",
             json={"title": "质量管理", "outline_position": 1, "blocks": []},
         ).json()
-        monkeypatch.setattr("app.services.generation.generate_chapter", lambda *args, **kwargs: {"blocks": [{"type": "paragraph", "text": "依据{{fact:" + fact["id"] + "}}安排施工"}], "citations": [], "open_issues": []})
+        monkeypatch.setattr("app.services.generation.generate_chapter", lambda *args, **kwargs: {"blocks": [{"type": "paragraph", "parts": [{"kind": "fact", "fact_id": fact["id"], "field": "value"}]}]})
         first = client.post(f"/api/chapters/{chapter['id']}/generate").json()
         retried = client.post(f"/api/jobs/{first['job']['id']}/retry")
         chapters = client.get(f"/api/projects/{project_id}/chapters").json()

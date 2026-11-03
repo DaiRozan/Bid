@@ -28,11 +28,21 @@ def ensure_record(session, document, parent_id=None, archive_path=None):
     if record is None:
         record = MaterialRecord(document_id=document.id, parent_id=parent_id, archive_path=archive_path or document.filename, kind=material_kind(archive_path or document.filename))
         session.add(record)
-        session.commit()
+    origin = {"parent_id": parent_id, "archive_path": archive_path or document.filename}
+    analysis = dict(record.analysis or {})
+    origins = list(analysis.get("origins", [{"parent_id": record.parent_id, "archive_path": record.archive_path}]))
+    # A parser's lookup must not invent a top-level origin for a child.
+    if archive_path is not None or (parent_id is None and record.parent_id is None):
+        if origin not in origins:
+            origins.append(origin)
+    record.analysis = {**analysis, "origins": origins}
+    if material_kind(origin["archive_path"]) == "supplement":
+        record.kind = "supplement"
+    session.commit()
     return record
 
 
-def import_materials(session, project_id, document, budget=None, depth=0):
+def import_materials(session, project_id, document, budget=None, depth=0, origin_path=None):
     from .parsing import parse_document
     settings = get_settings()
     budget = budget if budget is not None else {"bytes": 0, "members": 0}
@@ -45,7 +55,7 @@ def import_materials(session, project_id, document, budget=None, depth=0):
         if budget["bytes"] > settings.max_archive_bytes or budget["members"] > settings.max_archive_members:
             raise ValueError("压缩包解压总量或文件数量超过限额")
         for name, size, info in members:
-            archive_path = record.archive_path + "!/" + name
+            archive_path = (origin_path or record.archive_path) + "!/" + name
             existing = session.scalar(select(SourceDocument).join(MaterialRecord, MaterialRecord.document_id == SourceDocument.id).where(MaterialRecord.parent_id == document.id, MaterialRecord.archive_path == archive_path))
             if existing is not None:
                 child = existing
@@ -67,12 +77,16 @@ def import_materials(session, project_id, document, budget=None, depth=0):
                 except Exception:
                     target.unlink(missing_ok=True)
                     raise
-                child = SourceDocument(project_id=project_id, filename=PurePosixPath(name).name, media_type="application/octet-stream", extension=suffix, storage_path=str(target), sha256=digest.hexdigest(), size_bytes=written)
-                session.add(child)
-                session.commit()
-                ensure_record(session, child, document.id, archive_path)
+                child = session.scalar(select(SourceDocument).where(SourceDocument.project_id == project_id, SourceDocument.sha256 == digest.hexdigest(), SourceDocument.extension == suffix))
+                if child is not None:
+                    target.unlink(missing_ok=True)
+                else:
+                    child = SourceDocument(project_id=project_id, filename=PurePosixPath(name).name, media_type="application/octet-stream", extension=suffix, storage_path=str(target), sha256=digest.hexdigest(), size_bytes=written)
+                    session.add(child)
+                    session.commit()
+            ensure_record(session, child, document.id, archive_path)
             if child.extension in {".zip", ".rar"}:
-                import_materials(session, project_id, child, budget, depth + 1)
+                import_materials(session, project_id, child, budget, depth + 1, archive_path)
             elif child.status not in {"parsed", "analyzed"}:
                 parse_document(session, child)
         document.status = "unpacked"

@@ -69,6 +69,12 @@ def analyze_cad(path: Path) -> dict:
             warnings.append("块引用递归超过16层，相关图形待复核")
             return
         for entity in entities:
+            if entity.dxftype() == "INSERT" and entity.mcount > 1:
+                for cell, instance in enumerate(entity.multi_insert()):
+                    # Keep the original handle while identifying each array cell.
+                    instance.dxf.handle = original_handle(entity)
+                    walk([instance], layout, block_path + [f"array-cell-{cell}"], depth)
+                continue
             visited_count += 1
             if visited_count > 500_000:
                 raise ValueError("图纸图元展开超过50万，需拆分后处理")
